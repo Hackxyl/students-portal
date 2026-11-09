@@ -15,7 +15,6 @@ import {
   Pencil,
   Plus,
   Search,
-  UserRound,
   Users,
   X,
 } from 'lucide-react'
