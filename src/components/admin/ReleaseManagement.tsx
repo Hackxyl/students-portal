@@ -1,5 +1,5 @@
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,27 +13,128 @@ import {
   XCircle,
 } from 'lucide-react'
 
-import type {
-  ManagedResult,
-} from './ResultsManagement'
+import type { ManagedResult } from './ResultsManagement'
 
 type ReleaseManagementProps = {
   results: ManagedResult[]
-  publishedFingerprint: string | null
-  cachedFingerprint: string | null
-  onPublish: (fingerprint: string) => void
-  onCacheRefresh: (fingerprint: string) => void
+  publishedFingerprints: Record<string, string>
+  cachedFingerprints: Record<string, string>
+  onPublish: (periodKey: string, fingerprint: string) => void
+  onCacheRefresh: (periodKey: string, fingerprint: string) => void
+}
+
+type ExaminationPeriod = {
+  academicYear: string
+  semester: string
+  key: string
+}
+
+function getPeriodKey(
+  academicYear: string,
+  semester: string,
+) {
+  return `${academicYear}::${semester}`
+}
+
+function createPeriodFingerprint(records: ManagedResult[]) {
+  return JSON.stringify(
+    [...records].sort((a, b) => a.id - b.id),
+  )
 }
 
 export default function ReleaseManagement({
   results,
-  publishedFingerprint,
-  cachedFingerprint,
+  publishedFingerprints,
+  cachedFingerprints,
   onPublish,
   onCacheRefresh,
 }: ReleaseManagementProps) {
-  const [academicYear, setAcademicYear] = useState('2025/2026')
-  const [semester, setSemester] = useState('Semester 1')
+  // =======================================
+  // AVAILABLE EXAMINATION PERIODS
+  // =======================================
+
+  const availablePeriods = useMemo<ExaminationPeriod[]>(
+    () => {
+      const periods = new Map<string, ExaminationPeriod>()
+
+      for (const result of results) {
+        const key = getPeriodKey(
+          result.academicYear,
+          result.semester,
+        )
+
+        periods.set(key, {
+          academicYear: result.academicYear,
+          semester: result.semester,
+          key,
+        })
+      }
+
+      return [...periods.values()].sort(
+        (a, b) =>
+          b.academicYear.localeCompare(a.academicYear) ||
+          a.semester.localeCompare(b.semester),
+      )
+    },
+    [results],
+  )
+
+  const initialPeriod =
+    availablePeriods.find(
+      (period) =>
+        period.academicYear === '2025/2026' &&
+        period.semester === 'Semester 1',
+    ) ?? availablePeriods[0]
+
+  const [academicYear, setAcademicYear] = useState(
+    initialPeriod?.academicYear ?? '',
+  )
+
+  const [semester, setSemester] = useState(
+    initialPeriod?.semester ?? '',
+  )
+
+  const academicYears = useMemo(
+    () =>
+      [...new Set(
+        availablePeriods.map((period) => period.academicYear),
+      )].sort((a, b) => b.localeCompare(a)),
+    [availablePeriods],
+  )
+
+  const semesters = useMemo(
+    () =>
+      availablePeriods
+        .filter(
+          (period) => period.academicYear === academicYear,
+        )
+        .map((period) => period.semester)
+        .sort((a, b) => {
+          const first = Number(a.match(/\d+/)?.[0] ?? 0)
+          const second = Number(b.match(/\d+/)?.[0] ?? 0)
+
+          return first - second
+        }),
+    [availablePeriods, academicYear],
+  )
+
+  // Keep the selected period valid when records change.
+  useEffect(() => {
+    if (!academicYears.includes(academicYear)) {
+      setAcademicYear(academicYears[0] ?? '')
+      return
+    }
+
+    if (!semesters.includes(semester)) {
+      setSemester(semesters[0] ?? '')
+    }
+  }, [academicYears, academicYear, semesters, semester])
+
+  // =======================================
+  // SELECTED PERIOD
+  // =======================================
+
+  const periodKey = getPeriodKey(academicYear, semester)
 
   const periodResults = useMemo(
     () =>
@@ -62,11 +163,14 @@ export default function ReleaseManagement({
   const allApproved =
     totalCount > 0 && approvedCount === totalCount
 
-  // The fingerprint changes whenever a selected result changes.
-  // This prevents an outdated publication or cache state being reused.
-  const fingerprint = JSON.stringify(
-    [...periodResults].sort((a, b) => a.id - b.id),
-  )
+  // A change to any record invalidates this period's old release.
+  const fingerprint = createPeriodFingerprint(periodResults)
+
+  const publishedFingerprint =
+    publishedFingerprints[periodKey] ?? null
+
+  const cachedFingerprint =
+    cachedFingerprints[periodKey] ?? null
 
   const isPublished =
     allApproved && publishedFingerprint === fingerprint
@@ -76,7 +180,12 @@ export default function ReleaseManagement({
 
   const canPublish = allApproved && !isPublished
 
-  const canRefreshCache = isPublished && !isCacheRefreshed
+  const canRefreshCache =
+    isPublished && !isCacheRefreshed
+
+  // =======================================
+  // WORKFLOW
+  // =======================================
 
   const workflowSteps = [
     {
@@ -94,7 +203,7 @@ export default function ReleaseManagement({
     {
       title: 'Publication authorization',
       description: isPublished
-        ? 'Publication has been authorized in this simulation.'
+        ? 'Publication has been authorized for this period.'
         : 'Publication is locked until all records are approved.',
       completed: isPublished,
       icon: LockKeyhole,
@@ -109,6 +218,10 @@ export default function ReleaseManagement({
     },
   ]
 
+  // =======================================
+  // RENDER
+  // =======================================
+
   return (
     <section className="release-page">
       <div className="release-heading">
@@ -116,7 +229,9 @@ export default function ReleaseManagement({
           <span className="release-eyebrow">
             EXAMINATION OPERATIONS
           </span>
+
           <h1>Release Management</h1>
+
           <p>
             Review examination readiness, authorize publication and
             simulate student access to released results.
@@ -131,6 +246,7 @@ export default function ReleaseManagement({
 
       <div className="release-notice">
         <AlertTriangle size={18} />
+
         <p>
           <strong>Demonstration environment:</strong> Publication and
           Redis cache operations are simulated locally. No real student
@@ -141,30 +257,52 @@ export default function ReleaseManagement({
       <section className="release-period-panel">
         <div>
           <h2>Examination period</h2>
-          <p>Select the academic period whose results you want to release.</p>
+
+          <p>
+            Select the academic period whose results you want to release.
+          </p>
         </div>
 
         <div className="release-period-controls">
           <label>
             Academic year
+
             <select
               value={academicYear}
-              onChange={(event) => setAcademicYear(event.target.value)}
+              disabled={academicYears.length === 0}
+              onChange={(event) => {
+                const nextYear = event.target.value
+
+                setAcademicYear(nextYear)
+
+                const nextSemester = availablePeriods.find(
+                  (period) => period.academicYear === nextYear,
+                )?.semester
+
+                setSemester(nextSemester ?? '')
+              }}
             >
-              <option value="2024/2025">2024/2025</option>
-              <option value="2025/2026">2025/2026</option>
-              <option value="2026/2027">2026/2027</option>
+              {academicYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
             </select>
           </label>
 
           <label>
             Semester
+
             <select
               value={semester}
+              disabled={semesters.length === 0}
               onChange={(event) => setSemester(event.target.value)}
             >
-              <option value="Semester 1">Semester 1</option>
-              <option value="Semester 2">Semester 2</option>
+              {semesters.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -175,6 +313,7 @@ export default function ReleaseManagement({
           <div className="release-stat-icon blue">
             <Users size={20} />
           </div>
+
           <span>Total records</span>
           <strong>{totalCount}</strong>
           <small>Selected examination period</small>
@@ -184,6 +323,7 @@ export default function ReleaseManagement({
           <div className="release-stat-icon green">
             <CheckCircle2 size={20} />
           </div>
+
           <span>Approved</span>
           <strong>{approvedCount}</strong>
           <small>Verified examination records</small>
@@ -193,6 +333,7 @@ export default function ReleaseManagement({
           <div className="release-stat-icon amber">
             <Clock3 size={20} />
           </div>
+
           <span>Pending review</span>
           <strong>{pendingCount}</strong>
           <small>Awaiting approval</small>
@@ -202,6 +343,7 @@ export default function ReleaseManagement({
           <div className="release-stat-icon red">
             <XCircle size={20} />
           </div>
+
           <span>Rejected</span>
           <strong>{rejectedCount}</strong>
           <small>Require correction</small>
@@ -215,6 +357,7 @@ export default function ReleaseManagement({
               <h2>Publication workflow</h2>
               <p>Required stages before student access is enabled.</p>
             </div>
+
             <ClipboardCheck size={20} />
           </div>
 
@@ -241,6 +384,7 @@ export default function ReleaseManagement({
                     <strong>
                       {index + 1}. {step.title}
                     </strong>
+
                     <p>{step.description}</p>
                   </div>
 
@@ -259,14 +403,17 @@ export default function ReleaseManagement({
               <h2>Publication controls</h2>
               <p>Manage the selected examination period.</p>
             </div>
+
             <LockKeyhole size={20} />
           </div>
 
           {!isPublished && (
             <div className="release-control-warning">
               <AlertTriangle size={18} />
+
               <div>
                 <strong>Publication not authorized</strong>
+
                 <p>
                   {totalCount === 0
                     ? 'There are no examination records for this period.'
@@ -281,8 +428,10 @@ export default function ReleaseManagement({
           {isPublished && (
             <div className="release-control-success">
               <CheckCircle2 size={19} />
+
               <div>
                 <strong>Results successfully published</strong>
+
                 <p>
                   Publication is authorized for {semester}, {academicYear}.
                 </p>
@@ -295,7 +444,7 @@ export default function ReleaseManagement({
               type="button"
               className="release-publish-button"
               disabled={!canPublish}
-              onClick={() => onPublish(fingerprint)}
+              onClick={() => onPublish(periodKey, fingerprint)}
             >
               <ShieldCheck size={17} />
               Authorize publication
@@ -305,7 +454,7 @@ export default function ReleaseManagement({
               type="button"
               className="release-cache-button"
               disabled={!canRefreshCache}
-              onClick={() => onCacheRefresh(fingerprint)}
+              onClick={() => onCacheRefresh(periodKey, fingerprint)}
             >
               <RefreshCw size={17} />
               Simulate Redis cache refresh
@@ -314,8 +463,10 @@ export default function ReleaseManagement({
 
           <div className="release-cache-status">
             <Database size={18} />
+
             <div>
               <strong>Redis cache status</strong>
+
               <p>
                 {isCacheRefreshed
                   ? 'Cache refreshed successfully. Published results are ready for simulated student access.'
@@ -324,6 +475,7 @@ export default function ReleaseManagement({
                     : 'Cache refresh is unavailable until results are published.'}
               </p>
             </div>
+
             <span
               className={`release-cache-indicator ${
                 isCacheRefreshed ? 'active' : ''
@@ -350,6 +502,7 @@ export default function ReleaseManagement({
                   ? 'Student access enabled'
                   : 'Student access locked'}
               </strong>
+
               <p>
                 {isCacheRefreshed
                   ? 'The selected period is ready for students in this simulation.'
@@ -364,10 +517,12 @@ export default function ReleaseManagement({
         <div className="release-panel-heading">
           <div>
             <h2>Release eligibility</h2>
+
             <p>
               Examination records included in the selected publication.
             </p>
           </div>
+
           <span>{totalCount} records</span>
         </div>
 
@@ -378,7 +533,7 @@ export default function ReleaseManagement({
                 <tr>
                   <th>STUDENT</th>
                   <th>REGISTRATION NUMBER</th>
-                  <th>COURSE</th>
+                  <th>EXAMINATION UNIT</th>
                   <th>MARKS</th>
                   <th>GRADE</th>
                   <th>REVIEW STATUS</th>
@@ -390,15 +545,24 @@ export default function ReleaseManagement({
                   <tr key={result.id}>
                     <td>{result.studentName}</td>
                     <td>{result.registrationNumber}</td>
+
                     <td>
                       <strong>{result.courseCode}</strong>
                       <span>{result.courseName}</span>
                     </td>
+
                     <td>{result.marks}%</td>
                     <td>{result.grade}</td>
+
                     <td>
                       <span
-                        className={`release-record-status ${result.status === 'Approved' ? 'approved' : result.status === 'Rejected' ? 'rejected' : 'pending'}`}
+                        className={`release-record-status ${
+                          result.status === 'Approved'
+                            ? 'approved'
+                            : result.status === 'Rejected'
+                              ? 'rejected'
+                              : 'pending'
+                        }`}
                       >
                         {result.status}
                       </span>
@@ -411,10 +575,12 @@ export default function ReleaseManagement({
         ) : (
           <div className="release-empty-state">
             <ClipboardCheck size={28} />
+
             <strong>No records for this examination period</strong>
+
             <p>
-              Add examination records in Results Management before starting
-              the release workflow.
+              Add examination records in Results Management before
+              starting the release workflow.
             </p>
           </div>
         )}
@@ -422,6 +588,7 @@ export default function ReleaseManagement({
 
       <div className="release-prototype-note">
         <AlertTriangle size={17} />
+
         <p>
           <strong>Prototype limitation:</strong> Publication authorization
           and Redis operations are frontend simulations. A real system
@@ -433,3 +600,4 @@ export default function ReleaseManagement({
     </section>
   )
 }
+

@@ -6,60 +6,149 @@ import {
   Download,
   Search,
   TrendingUp,
+  LockKeyhole,
 } from 'lucide-react'
 
-type Result = {
-  id: number
-  code: string
-  name: string
-  credits: number
-  marks: number
-  grade: string
-  semester: string
-  academicYear: string
-}
+import type { ManagedResult } from '../admin/ResultsManagement'
 
-const results: Result[] = [
-  { id: 1, code: 'BIT 310', name: 'Software Engineering', credits: 3, marks: 82, grade: 'A', semester: 'Semester 1', academicYear: '2025/2026' },
-  { id: 2, code: 'BIT 320', name: 'Database Management Systems', credits: 3, marks: 76, grade: 'B+', semester: 'Semester 1', academicYear: '2025/2026' },
-  { id: 3, code: 'BIT 315', name: 'Computer Networks', credits: 3, marks: 68, grade: 'B', semester: 'Semester 1', academicYear: '2025/2026' },
-  { id: 4, code: 'BIT 330', name: 'Systems Analysis and Design', credits: 3, marks: 88, grade: 'A', semester: 'Semester 1', academicYear: '2025/2026' },
-  { id: 5, code: 'BIT 301', name: 'Research Methods', credits: 2, marks: 72, grade: 'B+', semester: 'Semester 1', academicYear: '2025/2026' },
-  { id: 6, code: 'BIT 210', name: 'Object Oriented Programming', credits: 3, marks: 79, grade: 'B+', semester: 'Semester 2', academicYear: '2024/2025' },
-  { id: 7, code: 'BIT 220', name: 'Data Structures', credits: 3, marks: 85, grade: 'A', semester: 'Semester 2', academicYear: '2024/2025' },
-]
+type PeriodFingerprints = Record<string, string>
+
+type MyResultsProps = {
+  results: ManagedResult[]
+  registrationNumber: string
+  publishedFingerprints: PeriodFingerprints
+  cachedFingerprints: PeriodFingerprints
+}
 
 const gradePoints: Record<string, number> = {
   A: 4,
+  'A-': 3.7,
   'B+': 3.5,
   B: 3,
+  'B-': 2.7,
   'C+': 2.5,
   C: 2,
   D: 1,
   E: 0,
 }
 
+const gradeOptions = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'D', 'E']
+
 function getGradeColor(grade: string) {
-  if (grade === 'A') return 'grade-a'
-  if (grade === 'B+' || grade === 'B') return 'grade-b'
+  if (grade === 'A' || grade === 'A-') return 'grade-a'
+
+  if (['B+', 'B', 'B-'].includes(grade)) return 'grade-b'
+
   if (grade === 'C+' || grade === 'C') return 'grade-c'
+
   return 'grade-low'
 }
 
-export default function MyResults() {
+function createPeriodFingerprint(records: ManagedResult[]) {
+  return JSON.stringify(
+    [...records].sort((a, b) => a.id - b.id),
+  )
+}
+
+function isPeriodAvailable(
+  records: ManagedResult[],
+  periodKey: string,
+  publishedFingerprints: PeriodFingerprints,
+  cachedFingerprints: PeriodFingerprints,
+) {
+  if (!records.length) return false
+
+  const fingerprint = createPeriodFingerprint(records)
+
+  return (
+    publishedFingerprints[periodKey] === fingerprint &&
+    cachedFingerprints[periodKey] === fingerprint
+  )
+}
+
+export default function MyResults({
+  results,
+  registrationNumber,
+  publishedFingerprints,
+  cachedFingerprints,
+}: MyResultsProps) {
   const [semester, setSemester] = useState('All')
   const [academicYear, setAcademicYear] = useState('All')
   const [search, setSearch] = useState('')
 
+  const periodGroups = useMemo(() => {
+    const groups = new Map<string, ManagedResult[]>()
+
+    results.forEach((result) => {
+      const key = `${result.academicYear}::${result.semester}`
+      const existing = groups.get(key) ?? []
+
+      existing.push(result)
+      groups.set(key, existing)
+    })
+
+    return Array.from(groups.entries()).map(([key, records]) => ({
+      key,
+      records,
+      academicYear: records[0].academicYear,
+      semester: records[0].semester,
+      available: isPeriodAvailable(
+        records,
+        key,
+        publishedFingerprints,
+        cachedFingerprints,
+      ),
+    }))
+  }, [results, publishedFingerprints, cachedFingerprints])
+
+  const accessibleResults = useMemo(() => {
+    return periodGroups
+      .filter((group) => group.available)
+      .flatMap((group) => group.records)
+      .filter(
+        (result) =>
+          result.registrationNumber.toLowerCase() ===
+            registrationNumber.toLowerCase() &&
+          result.status === 'Approved',
+      )
+      .map((result) => ({
+        id: result.id,
+        code: result.courseCode,
+        name: result.courseName,
+        credits: result.credits,
+        marks: result.marks,
+        grade: result.grade,
+        semester: result.semester,
+        academicYear: result.academicYear,
+      }))
+  }, [periodGroups, registrationNumber])
+
+  const academicYears = useMemo(
+    () =>
+      [...new Set(accessibleResults.map((result) => result.academicYear))]
+        .sort()
+        .reverse(),
+    [accessibleResults],
+  )
+
+  const semesters = useMemo(
+    () =>
+      [...new Set(accessibleResults.map((result) => result.semester))]
+        .sort(),
+    [accessibleResults],
+  )
+
   const filteredResults = useMemo(() => {
-    return results.filter((result) => {
+    const query = search.toLowerCase().trim()
+
+    return accessibleResults.filter((result) => {
       const matchesSemester =
         semester === 'All' || result.semester === semester
 
       const matchesYear =
-        academicYear === 'All' || result.academicYear === academicYear
+        academicYear === 'All' ||
+        result.academicYear === academicYear
 
-      const query = search.toLowerCase().trim()
       const matchesSearch =
         !query ||
         result.code.toLowerCase().includes(query) ||
@@ -67,7 +156,7 @@ export default function MyResults() {
 
       return matchesSemester && matchesYear && matchesSearch
     })
-  }, [semester, academicYear, search])
+  }, [accessibleResults, semester, academicYear, search])
 
   const totalCredits = filteredResults.reduce(
     (total, result) => total + result.credits,
@@ -75,48 +164,85 @@ export default function MyResults() {
   )
 
   const average = filteredResults.length
-    ? filteredResults.reduce((total, result) => total + result.marks, 0) /
-      filteredResults.length
+    ? filteredResults.reduce(
+        (total, result) => total + result.marks,
+        0,
+      ) / filteredResults.length
     : 0
 
   const gpa = totalCredits
     ? filteredResults.reduce(
         (total, result) =>
-          total + gradePoints[result.grade] * result.credits,
+          total + (gradePoints[result.grade] ?? 0) * result.credits,
         0,
       ) / totalCredits
     : 0
 
-  const gradeCounts = ['A', 'B+', 'B', 'C+', 'C', 'D', 'E'].map((grade) => ({
+  const gradeCounts = gradeOptions.map((grade) => ({
     grade,
-    count: filteredResults.filter((result) => result.grade === grade).length,
+    count: filteredResults.filter(
+      (result) => result.grade === grade,
+    ).length,
   }))
 
+  const availablePeriods = periodGroups.filter(
+    (group) => group.available,
+  ).length
+
+  const pendingPeriods = periodGroups.length - availablePeriods
+
   function exportResults() {
-    const headers = ['Course Code', 'Course Name', 'Credits', 'Marks', 'Grade']
+    if (!filteredResults.length) return
+
+    const headers = [
+      'Unit Code',
+      'Unit Name',
+      'Credits',
+      'Marks',
+      'Grade',
+      'Semester',
+      'Academic Year',
+    ]
+
     const rows = filteredResults.map((result) => [
       result.code,
       result.name,
       result.credits,
       result.marks,
       result.grade,
+      result.semester,
+      result.academicYear,
     ])
 
-    const csv = [headers, ...rows]
-      .map((row) =>
-        row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','),
-      )
-      .join('\n')
+    const escapeCsv = (value: string | number) => {
+      let text = String(value)
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      if (/^[\s]*[=+\-@]/.test(text)) {
+        text = `'${text}`
+      }
+
+      return `"${text.replace(/"/g, '""')}"`
+    }
+
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsv).join(','))
+      .join('\r\n')
+
+    const blob = new Blob(['\uFEFF', csv], {
+      type: 'text/csv;charset=utf-8;',
+    })
+
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
 
     link.href = url
-    link.download = 'student-results.csv'
-    link.click()
+    link.download = 'student-examination-results.csv'
 
-    URL.revokeObjectURL(url)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   return (
@@ -125,10 +251,18 @@ export default function MyResults() {
         <div>
           <span className="results-eyebrow">ACADEMIC RECORDS</span>
           <h1>My Results</h1>
-          <p>Review your examination performance and academic progress.</p>
+          <p>
+            Review your published examination performance and academic
+            progress.
+          </p>
         </div>
 
-        <button className="results-export" onClick={exportResults}>
+        <button
+          type="button"
+          className="results-export"
+          onClick={exportResults}
+          disabled={!filteredResults.length}
+        >
           <Download size={17} />
           Export CSV
         </button>
@@ -139,9 +273,9 @@ export default function MyResults() {
           <div className="results-stat-icon blue">
             <BookOpen size={20} />
           </div>
-          <span>Total Courses</span>
+          <span>Total Examination Units</span>
           <strong>{filteredResults.length}</strong>
-          <small>Courses matching your filters</small>
+          <small>Published units matching your filters</small>
         </article>
 
         <article className="results-stat">
@@ -150,7 +284,7 @@ export default function MyResults() {
           </div>
           <span>Grade Point Average</span>
           <strong>{gpa.toFixed(2)}</strong>
-          <small>Weighted by course credits</small>
+          <small>Illustrative credit-weighted GPA</small>
         </article>
 
         <article className="results-stat">
@@ -159,7 +293,7 @@ export default function MyResults() {
           </div>
           <span>Average Marks</span>
           <strong>{average.toFixed(1)}%</strong>
-          <small>Average across displayed courses</small>
+          <small>Average across displayed units</small>
         </article>
       </div>
 
@@ -167,8 +301,9 @@ export default function MyResults() {
         <div className="results-panel-heading">
           <div>
             <h2>Examination Records</h2>
-            <p>Your academic results by course.</p>
+            <p>Your approved and published academic results.</p>
           </div>
+
           <span className="results-record-count">
             {filteredResults.length} records
           </span>
@@ -179,7 +314,7 @@ export default function MyResults() {
             <Search size={17} />
             <input
               type="search"
-              placeholder="Search course code or name..."
+              placeholder="Search unit code or name..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -191,8 +326,12 @@ export default function MyResults() {
             onChange={(event) => setAcademicYear(event.target.value)}
           >
             <option value="All">All academic years</option>
-            <option value="2025/2026">2025/2026</option>
-            <option value="2024/2025">2024/2025</option>
+
+            {academicYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
           </select>
 
           <select
@@ -201,8 +340,12 @@ export default function MyResults() {
             onChange={(event) => setSemester(event.target.value)}
           >
             <option value="All">All semesters</option>
-            <option value="Semester 1">Semester 1</option>
-            <option value="Semester 2">Semester 2</option>
+
+            {semesters.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -210,7 +353,7 @@ export default function MyResults() {
           <table className="results-table">
             <thead>
               <tr>
-                <th>COURSE</th>
+                <th>EXAMINATION UNIT</th>
                 <th>CREDITS</th>
                 <th>MARKS</th>
                 <th>GRADE</th>
@@ -227,15 +370,21 @@ export default function MyResults() {
                       <span>{result.name}</span>
                     </div>
                   </td>
+
                   <td>{result.credits}</td>
+
                   <td>
                     <strong>{result.marks}%</strong>
                   </td>
+
                   <td>
-                    <span className={`results-grade ${getGradeColor(result.grade)}`}>
+                    <span
+                      className={`results-grade ${getGradeColor(result.grade)}`}
+                    >
                       {result.grade}
                     </span>
                   </td>
+
                   <td>
                     <div className="results-semester">
                       <span>{result.semester}</span>
@@ -249,16 +398,32 @@ export default function MyResults() {
 
           {filteredResults.length === 0 && (
             <div className="results-empty">
-              <Search size={25} />
-              <strong>No results found</strong>
-              <span>Try changing your search or filters.</span>
+              {accessibleResults.length === 0 ? (
+                <>
+                  <LockKeyhole size={25} />
+                  <strong>No published results available</strong>
+                  <span>
+                    Your approved examination results will appear here
+                    after the administrator publishes them and refreshes
+                    the simulated cache for their academic period.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Search size={25} />
+                  <strong>No results found</strong>
+                  <span>Try changing your search or filters.</span>
+                </>
+              )}
             </div>
           )}
         </div>
 
         <div className="results-table-footer">
-          <span>Showing {filteredResults.length} examination records</span>
-          <span>Academic prototype · Sample data</span>
+          <span>
+            Showing {filteredResults.length} examination records
+          </span>
+          <span>Academic prototype · Simulated publication</span>
         </div>
       </div>
 
@@ -266,7 +431,9 @@ export default function MyResults() {
         <div className="results-panel-heading">
           <div>
             <h2>Grade Distribution</h2>
-            <p>Distribution across the currently displayed results.</p>
+            <p>
+              Distribution across the currently displayed results.
+            </p>
           </div>
         </div>
 
@@ -279,12 +446,14 @@ export default function MyResults() {
             return (
               <div className="grade-distribution-item" key={grade}>
                 <strong>{grade}</strong>
+
                 <div className="grade-distribution-track">
                   <div
                     className={`grade-distribution-fill ${getGradeColor(grade)}`}
                     style={{ width: `${percentage}%` }}
                   />
                 </div>
+
                 <span>{count}</span>
               </div>
             )
@@ -293,9 +462,18 @@ export default function MyResults() {
       </div>
 
       <p className="results-disclaimer">
-        <strong>Prototype notice:</strong> These are illustrative examination
-        records. They are not official university results.
+        <strong>Prototype notice:</strong> Results are simulated academic
+        records. Only approved records from published and cache-refreshed
+        periods are displayed. The GPA scale is illustrative and is not
+        an official university grading policy.
+      </p>
+
+      <p className="results-disclaimer">
+        {pendingPeriods > 0
+          ? `${pendingPeriods} academic period(s) are not currently available.`
+          : 'All academic periods containing records have passed the simulated publication check.'}
       </p>
     </section>
   )
 }
+

@@ -1,9 +1,15 @@
+
 import { useMemo, useState } from 'react'
+import type {
+  Dispatch,
+  FormEvent,
+  SetStateAction,
+} from 'react'
+
 import {
   AlertCircle,
   Check,
   CheckCircle2,
-  
   Clock3,
   Download,
   Pencil,
@@ -13,7 +19,14 @@ import {
   X,
 } from 'lucide-react'
 
-export type ResultStatus = 'Pending review' | 'Approved' | 'Rejected'
+// =========================================
+// TYPES
+// =========================================
+
+export type ResultStatus =
+  | 'Pending review'
+  | 'Approved'
+  | 'Rejected'
 
 export type ManagedResult = {
   id: number
@@ -39,6 +52,15 @@ type ResultDraft = {
   semester: string
   academicYear: string
 }
+
+type ResultsManagementProps = {
+  results: ManagedResult[]
+  onResultsChange: Dispatch<SetStateAction<ManagedResult[]>>
+}
+
+// =========================================
+// INITIAL DEMONSTRATION RECORDS
+// =========================================
 
 export const initialResults: ManagedResult[] = [
   {
@@ -134,6 +156,10 @@ export const initialResults: ManagedResult[] = [
   },
 ]
 
+// =========================================
+// FORM DEFAULTS
+// =========================================
+
 const emptyDraft: ResultDraft = {
   registrationNumber: '',
   studentName: '',
@@ -145,8 +171,12 @@ const emptyDraft: ResultDraft = {
   academicYear: '2025/2026',
 }
 
-// Illustrative grading bands for this academic prototype.
-// Replace these with the institution's official grading policy.
+// =========================================
+// GRADING
+// Illustrative prototype grading bands.
+// Replace with official institutional policy.
+// =========================================
+
 function calculateGrade(marks: number): string {
   if (marks >= 80) return 'A'
   if (marks >= 75) return 'A-'
@@ -159,42 +189,97 @@ function calculateGrade(marks: number): string {
 }
 
 function getGradeClass(grade: string): string {
-  if (grade === 'A' || grade === 'A-') return 'admin-grade-a'
-  if (grade === 'B+' || grade === 'B') return 'admin-grade-b'
-  if (grade === 'C+' || grade === 'C') return 'admin-grade-c'
+  if (grade === 'A' || grade === 'A-') {
+    return 'admin-grade-a'
+  }
+
+  if (['B+', 'B', 'B-'].includes(grade)) {
+    return 'admin-grade-b'
+  }
+
+  if (['C+', 'C'].includes(grade)) {
+    return 'admin-grade-c'
+  }
+
   return 'admin-grade-low'
 }
 
 function getStatusClass(status: ResultStatus): string {
-  if (status === 'Approved') return 'admin-status-approved'
-  if (status === 'Rejected') return 'admin-status-rejected'
+  if (status === 'Approved') {
+    return 'admin-status-approved'
+  }
+
+  if (status === 'Rejected') {
+    return 'admin-status-rejected'
+  }
+
   return 'admin-status-pending'
 }
 
+// =========================================
+// CSV HELPERS
+// =========================================
+
 function escapeCsv(value: string | number): string {
-  const text = String(value).replace(/"/g, '""')
-  return `"${text}"`
+  let text = String(value)
+
+  // Prevent spreadsheet formula injection.
+  if (/^[\s]*[=+\-@]/.test(text)) {
+    text = `'${text}`
+  }
+
+  return `"${text.replace(/"/g, '""')}"`
 }
 
-type ResultsManagementProps = {
-  results: ManagedResult[]
-  onResultsChange: React.Dispatch<React.SetStateAction<ManagedResult[]>>
-}
+// =========================================
+// COMPONENT
+// =========================================
 
 export default function ResultsManagement({
   results,
   onResultsChange,
 }: ResultsManagementProps) {
-  const setResults = onResultsChange
-  
+  // =======================================
+  // STATE
+  // =======================================
+
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [semesterFilter, setSemesterFilter] = useState('All')
   const [yearFilter, setYearFilter] = useState('All')
+
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+
   const [draft, setDraft] = useState<ResultDraft>(emptyDraft)
   const [formError, setFormError] = useState('')
+
+  // =======================================
+  // DYNAMIC FILTER OPTIONS
+  // =======================================
+
+  const academicYears = useMemo(
+    () =>
+      [...new Set(results.map((result) => result.academicYear))]
+        .sort((a, b) => b.localeCompare(a)),
+    [results],
+  )
+
+  const semesters = useMemo(
+    () =>
+      [...new Set(results.map((result) => result.semester))]
+        .sort((a, b) => {
+          const first = Number(a.match(/\d+/)?.[0] ?? 0)
+          const second = Number(b.match(/\d+/)?.[0] ?? 0)
+
+          return first - second
+        }),
+    [results],
+  )
+
+  // =======================================
+  // FILTERED RESULTS
+  // =======================================
 
   const filteredResults = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -208,13 +293,16 @@ export default function ResultsManagement({
         result.courseName.toLowerCase().includes(query)
 
       const matchesStatus =
-        statusFilter === 'All' || result.status === statusFilter
+        statusFilter === 'All' ||
+        result.status === statusFilter
 
       const matchesSemester =
-        semesterFilter === 'All' || result.semester === semesterFilter
+        semesterFilter === 'All' ||
+        result.semester === semesterFilter
 
       const matchesYear =
-        yearFilter === 'All' || result.academicYear === yearFilter
+        yearFilter === 'All' ||
+        result.academicYear === yearFilter
 
       return (
         matchesSearch &&
@@ -223,7 +311,17 @@ export default function ResultsManagement({
         matchesYear
       )
     })
-  }, [results, search, statusFilter, semesterFilter, yearFilter])
+  }, [
+    results,
+    search,
+    statusFilter,
+    semesterFilter,
+    yearFilter,
+  ])
+
+  // =======================================
+  // STATISTICS
+  // =======================================
 
   const pendingCount = results.filter(
     (result) => result.status === 'Pending review',
@@ -237,6 +335,10 @@ export default function ResultsManagement({
     (result) => result.status === 'Rejected',
   ).length
 
+  // =======================================
+  // MODAL OPERATIONS
+  // =======================================
+
   function openAddModal() {
     setEditingId(null)
     setDraft({ ...emptyDraft })
@@ -246,6 +348,7 @@ export default function ResultsManagement({
 
   function openEditModal(result: ManagedResult) {
     setEditingId(result.id)
+
     setDraft({
       registrationNumber: result.registrationNumber,
       studentName: result.studentName,
@@ -256,6 +359,7 @@ export default function ResultsManagement({
       semester: result.semester,
       academicYear: result.academicYear,
     })
+
     setFormError('')
     setIsModalOpen(true)
   }
@@ -267,20 +371,31 @@ export default function ResultsManagement({
     setFormError('')
   }
 
-  function updateDraft(field: keyof ResultDraft, value: string) {
+  function updateDraft(
+    field: keyof ResultDraft,
+    value: string,
+  ) {
     setDraft((current) => ({
       ...current,
       [field]: value,
     }))
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  // =======================================
+  // VALIDATION AND SAVE
+  // =======================================
 
-    const registrationNumber = draft.registrationNumber.trim()
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFormError('')
+
+    const registrationNumber =
+      draft.registrationNumber.trim().toUpperCase()
+
     const studentName = draft.studentName.trim()
     const courseCode = draft.courseCode.trim().toUpperCase()
     const courseName = draft.courseName.trim()
+
     const credits = Number(draft.credits)
     const marks = Number(draft.marks)
 
@@ -299,34 +414,54 @@ export default function ResultsManagement({
       credits < 1 ||
       credits > 10
     ) {
-      setFormError('Credits must be a whole number between 1 and 10.')
+      setFormError(
+        'Credit units must be a whole number between 1 and 10.',
+      )
       return
     }
 
-    if (!Number.isFinite(marks) || marks < 0 || marks > 100) {
-      setFormError('Marks must be a number between 0 and 100.')
+    if (
+      draft.marks.trim() === '' ||
+      !Number.isFinite(marks) ||
+      marks < 0 ||
+      marks > 100
+    ) {
+      setFormError(
+        'Marks must be a number between 0 and 100.',
+      )
+      return
+    }
+
+    if (!draft.semester || !draft.academicYear.trim()) {
+      setFormError(
+        'Please provide an academic year and select a semester.',
+      )
       return
     }
 
     const duplicate = results.some(
       (result) =>
         result.id !== editingId &&
-        result.registrationNumber.toLowerCase() ===
+        result.registrationNumber.trim().toLowerCase() ===
           registrationNumber.toLowerCase() &&
-        result.courseCode.toLowerCase() === courseCode.toLowerCase() &&
+        result.courseCode.trim().toLowerCase() ===
+          courseCode.toLowerCase() &&
         result.semester === draft.semester &&
-        result.academicYear === draft.academicYear,
+        result.academicYear === draft.academicYear.trim(),
     )
 
     if (duplicate) {
       setFormError(
-        'A result already exists for this student, course and semester.',
+        'A result already exists for this student, unit and semester.',
       )
       return
     }
 
     const updatedRecord: ManagedResult = {
-      id: editingId ?? Math.max(0, ...results.map((item) =>item.id)) + 1,
+      id:
+        editingId ??
+        Math.max(0, ...results.map((item) => item.id)) + 1,
+
       registrationNumber,
       studentName,
       courseCode,
@@ -335,38 +470,59 @@ export default function ResultsManagement({
       marks,
       grade: calculateGrade(marks),
       semester: draft.semester,
-      academicYear: draft.academicYear,
-      // Any new or edited record must be reviewed again.
+      academicYear: draft.academicYear.trim(),
+
+      // Modified and newly created records require review.
       status: 'Pending review',
     }
 
     if (editingId !== null) {
-      setResults((current) =>
+      onResultsChange((current) =>
         current.map((result) =>
-          result.id === editingId ? updatedRecord : result,
+          result.id === editingId
+            ? updatedRecord
+            : result,
         ),
       )
     } else {
-      setResults((current) => [updatedRecord, ...current])
+      onResultsChange((current) => [
+        updatedRecord,
+        ...current,
+      ])
     }
 
     closeModal()
   }
 
-  function updateStatus(id: number, status: ResultStatus) {
-    setResults((current) =>
+  // =======================================
+  // APPROVAL OPERATIONS
+  // =======================================
+
+  function updateStatus(
+    id: number,
+    status: ResultStatus,
+  ) {
+    onResultsChange((current) =>
       current.map((result) =>
-        result.id === id ? { ...result, status } : result,
+        result.id === id
+          ? { ...result, status }
+          : result,
       ),
     )
   }
 
+  // =======================================
+  // CSV EXPORT
+  // =======================================
+
   function exportResults() {
+    if (!filteredResults.length) return
+
     const headers = [
       'Registration Number',
       'Student Name',
-      'Course Code',
-      'Course Name',
+      'Unit Code',
+      'Unit Name',
       'Credits',
       'Marks',
       'Grade',
@@ -389,23 +545,34 @@ export default function ResultsManagement({
     ])
 
     const csv = [headers, ...rows]
-      .map((row) => row.map(escapeCsv).join(','))
-      .join('\n')
+      .map((row) =>
+        row.map(escapeCsv).join(','),
+      )
+      .join('\r\n')
 
-    const blob = new Blob(['\uFEFF', csv], {
-      type: 'text/csv;charset=utf-8;',
-    })
+    const blob = new Blob(
+      ['\uFEFF', csv],
+      { type: 'text/csv;charset=utf-8;' },
+    )
 
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
 
     link.href = url
     link.download = 'admin-examination-results.csv'
+
     document.body.appendChild(link)
     link.click()
     link.remove()
-    URL.revokeObjectURL(url)
+
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url)
+    }, 1000)
   }
+
+  // =======================================
+  // RENDER
+  // =======================================
 
   return (
     <section className="admin-results-page">
@@ -414,9 +581,11 @@ export default function ResultsManagement({
           <span className="admin-results-eyebrow">
             ACADEMIC OPERATIONS
           </span>
+
           <h1>Results Management</h1>
+
           <p>
-            Manage, validate and review examination recordsbefore
+            Manage, validate and review examination records before
             publication.
           </p>
         </div>
@@ -426,6 +595,7 @@ export default function ResultsManagement({
             type="button"
             className="admin-results-secondary-button"
             onClick={exportResults}
+            disabled={filteredResults.length === 0}
           >
             <Download size={17} />
             Export CSV
@@ -444,20 +614,25 @@ export default function ResultsManagement({
 
       <div className="admin-results-demo-notice">
         <AlertCircle size={17} />
+
         <span>
           Demonstration mode: records and approval actions are stored
-          only in this browser session. No official university data is
+          only in application memory. No official university data is
           changed.
         </span>
       </div>
+
+      {/* STATISTICS */}
 
       <div className="admin-results-stats">
         <article className="admin-results-stat">
           <div className="admin-results-stat-icon blue">
             <Users size={20} />
           </div>
+
           <span>Total records</span>
           <strong>{results.length}</strong>
+
           <small>Examination records in this demo</small>
         </article>
 
@@ -465,8 +640,10 @@ export default function ResultsManagement({
           <div className="admin-results-stat-icon amber">
             <Clock3 size={20} />
           </div>
+
           <span>Pending review</span>
           <strong>{pendingCount}</strong>
+
           <small>Awaiting academic verification</small>
         </article>
 
@@ -474,25 +651,32 @@ export default function ResultsManagement({
           <div className="admin-results-stat-icon green">
             <CheckCircle2 size={20} />
           </div>
+
           <span>Approved</span>
           <strong>{approvedCount}</strong>
-          <small>Ready for release workflow</small>
+
+          <small>Eligible for release workflow</small>
         </article>
 
         <article className="admin-results-stat">
           <div className="admin-results-stat-icon red">
             <AlertCircle size={20} />
           </div>
+
           <span>Rejected</span>
           <strong>{rejectedCount}</strong>
+
           <small>Require correction or review</small>
         </article>
       </div>
+
+      {/* RESULTS TABLE */}
 
       <section className="admin-results-panel">
         <div className="admin-results-panel-heading">
           <div>
             <h2>Examination records</h2>
+
             <p>
               Search student records and manage their review status.
             </p>
@@ -506,18 +690,23 @@ export default function ResultsManagement({
         <div className="admin-results-filters">
           <label className="admin-results-search">
             <Search size={17} />
+
             <input
               type="search"
-              placeholder="Search name, registration numberor course..."
+              placeholder="Search name, registration number or unit..."
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
             />
           </label>
 
           <select
             aria-label="Filter by review status"
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
+            onChange={(event) =>
+              setStatusFilter(event.target.value)
+            }
           >
             <option value="All">All statuses</option>
             <option value="Pending review">Pending review</option>
@@ -528,21 +717,33 @@ export default function ResultsManagement({
           <select
             aria-label="Filter by academic year"
             value={yearFilter}
-            onChange={(event) => setYearFilter(event.target.value)}
+            onChange={(event) =>
+              setYearFilter(event.target.value)
+            }
           >
             <option value="All">All academic years</option>
-            <option value="2025/2026">2025/2026</option>
-            <option value="2024/2025">2024/2025</option>
+
+            {academicYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
           </select>
 
           <select
             aria-label="Filter by semester"
             value={semesterFilter}
-            onChange={(event) => setSemesterFilter(event.target.value)}
+            onChange={(event) =>
+              setSemesterFilter(event.target.value)
+            }
           >
             <option value="All">All semesters</option>
-            <option value="Semester 1">Semester 1</option>
-            <option value="Semester 2">Semester 2</option>
+
+            {semesters.map((semester) => (
+              <option key={semester} value={semester}>
+                {semester}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -551,7 +752,7 @@ export default function ResultsManagement({
             <thead>
               <tr>
                 <th>STUDENT</th>
-                <th>COURSE</th>
+                <th>EXAMINATION UNIT</th>
                 <th>MARKS</th>
                 <th>GRADE</th>
                 <th>SEMESTER</th>
@@ -566,6 +767,7 @@ export default function ResultsManagement({
                   <td>
                     <div className="admin-results-student">
                       <strong>{result.studentName}</strong>
+
                       <span>{result.registrationNumber}</span>
                     </div>
                   </td>
@@ -573,6 +775,7 @@ export default function ResultsManagement({
                   <td>
                     <div className="admin-results-course">
                       <strong>{result.courseCode}</strong>
+
                       <span>{result.courseName}</span>
                     </div>
                   </td>
@@ -594,6 +797,7 @@ export default function ResultsManagement({
                   <td>
                     <div className="admin-results-semester">
                       <span>{result.semester}</span>
+
                       <small>{result.academicYear}</small>
                     </div>
                   </td>
@@ -655,8 +859,12 @@ export default function ResultsManagement({
           {filteredResults.length === 0 && (
             <div className="admin-results-empty">
               <Search size={25} />
+
               <strong>No examination records found</strong>
-              <span>Try another search term or change your filters.</span>
+
+              <span>
+                Try another search term or change your filters.
+              </span>
             </div>
           )}
         </div>
@@ -665,21 +873,26 @@ export default function ResultsManagement({
           <span>
             Showing {filteredResults.length} of {results.length} records
           </span>
+
           <span>Academic prototype · Simulated data</span>
         </div>
       </section>
 
       <div className="admin-results-grading-note">
-        <strong>Grading note:</strong> The displayed grading bands are
-        illustrative for this prototype. They must be replaced with the
-        university's official grading policy before real use.
+        <strong>Grading note:</strong> The displayed grading bands
+        are illustrative for this prototype. They must be replaced
+        with the university's official grading policy before real use.
       </div>
+
+      {/* ADD / EDIT MODAL */}
 
       {isModalOpen && (
         <div
           className="admin-results-modal-overlay"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeModal()
+            if (event.target === event.currentTarget) {
+              closeModal()
+            }
           }}
         >
           <section
@@ -693,12 +906,16 @@ export default function ResultsManagement({
                 <span className="admin-results-eyebrow">
                   EXAMINATION RECORD
                 </span>
+
                 <h2 id="admin-results-modal-title">
-                  {editingId === null ? 'Add examination result' : 'Edit examination result'}
+                  {editingId === null
+                    ? 'Add examination result'
+                    : 'Edit examination result'}
                 </h2>
+
                 <p>
-                  Enter student and course details. The grade is calculated
-                  automatically.
+                  Enter student and examination details. The grade
+                  is calculated automatically.
                 </p>
               </div>
 
@@ -716,11 +933,15 @@ export default function ResultsManagement({
               <div className="admin-results-form-grid">
                 <label>
                   Registration number
+
                   <input
                     required
                     value={draft.registrationNumber}
                     onChange={(event) =>
-                      updateDraft('registrationNumber', event.target.value)
+                      updateDraft(
+                        'registrationNumber',
+                        event.target.value,
+                      )
                     }
                     placeholder="e.g. BIT/008/2023"
                   />
@@ -728,42 +949,55 @@ export default function ResultsManagement({
 
                 <label>
                   Student name
+
                   <input
                     required
                     value={draft.studentName}
                     onChange={(event) =>
-                      updateDraft('studentName', event.target.value)
+                      updateDraft(
+                        'studentName',
+                        event.target.value,
+                      )
                     }
                     placeholder="Enter student name"
                   />
                 </label>
 
                 <label>
-                  Course code
+                  Unit code
+
                   <input
                     required
                     value={draft.courseCode}
                     onChange={(event) =>
-                      updateDraft('courseCode', event.target.value)
+                      updateDraft(
+                        'courseCode',
+                        event.target.value,
+                      )
                     }
                     placeholder="e.g. BIT 340"
                   />
                 </label>
 
                 <label>
-                  Course name
+                  Unit name
+
                   <input
                     required
                     value={draft.courseName}
                     onChange={(event) =>
-                      updateDraft('courseName', event.target.value)
+                      updateDraft(
+                        'courseName',
+                        event.target.value,
+                      )
                     }
-                    placeholder="Enter course name"
+                    placeholder="Enter examination unit name"
                   />
                 </label>
 
                 <label>
-                  Credit hours
+                  Credit units
+
                   <input
                     required
                     type="number"
@@ -772,13 +1006,17 @@ export default function ResultsManagement({
                     step="1"
                     value={draft.credits}
                     onChange={(event) =>
-                      updateDraft('credits', event.target.value)
+                      updateDraft(
+                        'credits',
+                        event.target.value,
+                      )
                     }
                   />
                 </label>
 
                 <label>
                   Examination marks
+
                   <input
                     required
                     type="number"
@@ -787,7 +1025,10 @@ export default function ResultsManagement({
                     step="0.01"
                     value={draft.marks}
                     onChange={(event) =>
-                      updateDraft('marks', event.target.value)
+                      updateDraft(
+                        'marks',
+                        event.target.value,
+                      )
                     }
                     placeholder="0–100"
                   />
@@ -795,29 +1036,40 @@ export default function ResultsManagement({
 
                 <label>
                   Semester
+
                   <select
                     value={draft.semester}
                     onChange={(event) =>
-                      updateDraft('semester', event.target.value)
+                      updateDraft(
+                        'semester',
+                        event.target.value,
+                      )
                     }
                   >
-                    <option value="Semester 1">Semester 1</option>
-                    <option value="Semester 2">Semester 2</option>
+                    <option value="Semester 1">
+                      Semester 1
+                    </option>
+
+                    <option value="Semester 2">
+                      Semester 2
+                    </option>
                   </select>
                 </label>
 
                 <label>
                   Academic year
-                  <select
+
+                  <input
+                    required
                     value={draft.academicYear}
                     onChange={(event) =>
-                      updateDraft('academicYear', event.target.value)
+                      updateDraft(
+                        'academicYear',
+                        event.target.value,
+                      )
                     }
-                  >
-                    <option value="2025/2026">2025/2026</option>
-                    <option value="2024/2025">2024/2025</option>
-                    <option value="2026/2027">2026/2027</option>
-                  </select>
+                    placeholder="e.g. 2026/2027"
+                  />
                 </label>
               </div>
 
@@ -827,12 +1079,18 @@ export default function ResultsManagement({
                 Number(draft.marks) <= 100 && (
                   <div className="admin-results-grade-preview">
                     Calculated grade
-                    <strong>{calculateGrade(Number(draft.marks))}</strong>
+
+                    <strong>
+                      {calculateGrade(Number(draft.marks))}
+                    </strong>
                   </div>
                 )}
 
               {formError && (
-                <div className="admin-results-form-error" role="alert">
+                <div
+                  className="admin-results-form-error"
+                  role="alert"
+                >
                   <AlertCircle size={16} />
                   {formError}
                 </div>
@@ -852,7 +1110,10 @@ export default function ResultsManagement({
                   className="admin-results-primary-button"
                 >
                   <Check size={16} />
-                  {editingId === null ? 'Save result' : 'Save changes'}
+
+                  {editingId === null
+                    ? 'Save result'
+                    : 'Save changes'}
                 </button>
               </div>
             </form>
